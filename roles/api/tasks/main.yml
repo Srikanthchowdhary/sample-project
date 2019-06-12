@@ -1,0 +1,7 @@
+---
+
+- name: login to docker registry
+  shell: "docker login -p {{ hostvars[groups['credentials'][0]]['registry_pass'] }} -u {{ hostvars[groups['db2'][0]]['registry_user'] }} {{ hostvars[groups['db2'][0]]['registry_host'] }}"
+
+- include_tasks: cals-api.yml
+- include_tasks: cals-api-rollingupdate.yml

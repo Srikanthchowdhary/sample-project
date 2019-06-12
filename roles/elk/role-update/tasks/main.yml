@@ -1,0 +1,36 @@
+---
+
+
+- name: copy over the elasticsearch config template
+  template:
+    src: ../elastic/templates/elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is defined) and (withoutldap == "true"))
+
+- name: copy over the elasticsearch config template
+  template:
+    src: ../elastic/templates/elasticsearch-ldap.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is not defined) or (withoutldap != "true"))
+
+- name: copy over the elasticsearch role_mapping config
+  template:
+    src: ../elastic/templates/role_mapping.yml.j2
+    dest: /etc/elasticsearch/x-pack/role_mapping.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+
+- name: copy over the elasticsearch JVM config
+  template:
+    src: ../elastic/templates/jvm.options.j2
+    dest: /etc/elasticsearch/jvm.options
+    mode: 0660
+    owner: root
+    group: elasticsearch

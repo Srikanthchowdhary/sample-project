@@ -1,0 +1,131 @@
+---
+#
+# Check that ElasticSearch cluster run and green
+#
+
+- name: Check ES nodes UP
+  uri:
+    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_cat/health
+    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+    return_content: yes
+    body_format: json
+  register: result
+  until: result.content | regex_search('green|yellow')
+  retries: 42
+  delay: 30
+
+- name: Show installed license
+  uri:
+    url="http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_xpack/license"
+    method=GET
+    user={{ hostvars[groups['elk'][0]]['elk.user'] }}
+    password={{ hostvars[groups['credentials'][0]]['elk.password'] }}
+
+#
+# Check that ElasticSearch return to yellow status after startup
+#
+
+- name: add newrelic plugin
+  shell: |
+    LICENSE_KEY="{{ hostvars[groups['credentials'][0]]['new_relic_license_key']}}" UNATTENDED=true bash -c "$(curl -sSL https://download.newrelic.com/npi/release/install-npi-linux-redhat-x64.sh)"
+    cd ~/newrelic-npi
+    ./npi install me.snov.newrelic-elasticsearch -y -n
+- name: Check newrelic elasticsearch path for plugin
+  shell: |
+    cd ~/newrelic-npi
+    ./npi where me.snov.newrelic-elasticsearch
+  register: newrelic_out
+
+- name: show debug
+  debug:
+    msg: "{{newrelic_out}}"
+
+- name: add newrelic elasticsearch config
+  template:
+    src: newrelic.yml.j2
+    dest: "{{newrelic_out.stdout}}/config/plugin.json"
+    mode: 0664
+    owner: root
+    group: root
+
+- name: Start newrelic plugin for elasticsearch
+  shell: |
+    cd ~/newrelic-npi
+    ./npi start me.snov.newrelic-elasticsearch
+#
+# Kibana preparation
+#
+
+#
+# Check that ElasticSearch cluster run and green
+#
+
+- name: Check ES nodes UP
+  uri:
+    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_cat/health
+    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+    return_content: yes
+    body_format: json
+  register: result
+  until: result.content | regex_search('green|yellow')
+  retries: 42
+  delay: 30
+
+- name: Enable index blocks write for kibana index
+  uri:
+    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/.kibana/_settings
+    method: PUT
+    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+    body_format: json
+    body:  "{ \"index.blocks.write\": true}"
+  run_once: true
+
+- name: Check ES nodes UP
+  uri:
+    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_cat/health
+    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+    return_content: yes
+    body_format: json
+  register: result
+  until: result.content | regex_search('green|yellow')
+  retries: 42
+  delay: 30
+
+
+- name: Copy Index configuration
+  copy:
+    src: kibana.json
+    dest: /tmp/kibana.json
+
+#- name: Create new index for kibana
+#  uri:
+#    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/.kibana-6
+#    method: PUT
+#    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+#    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+#    body_format: json
+#    src: /tmp/kibana.json
+#    remote_src: yes
+#  run_once: true
+
+- name: CURL Create new index for kibana
+  command: "curl -H 'Content-Type: application/json' -u \"{{ hostvars[groups['elk'][0]]['elk.user'] }}:{{ hostvars[groups['credentials'][0]]['elk.password'] }}\" -X PUT \"http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/.kibana-6\"  -d@/tmp/kibana.json"
+  run_once: true
+
+- name: CURL Reindex kibana index
+  command: "curl -u \"{{ hostvars[groups['elk'][0]]['elk.user'] }}:{{ hostvars[groups['credentials'][0]]['elk.password'] }}\" -X POST \"http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_reindex\" -H 'Content-Type: application/json' -d'{ \"source\": { \"index\": \".kibana\" }, \"dest\": { \"index\": \".kibana-6\" }, \"script\": { \"inline\": \"ctx._source = [ ctx._type : ctx._source ]; ctx._source.type = ctx._type; ctx._id = ctx._type + \":\" + ctx._id; ctx._type = \"doc\"; \", \"lang\": \"painless\" } }'"
+  run_once: true
+
+- name: Create Alias for kibana index
+  uri:
+    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_aliases
+    method: POST
+    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+    body_format: json
+    body: "{ 	\"actions\": [	{	\"add\": {	\"index\": \".kibana-6\",	\"alias\": \".kibana\"	}	},	{	\"remove_index\": {	\"index\": \".kibana\"	}	} 	] }"
+  run_once: true

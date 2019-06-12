@@ -1,0 +1,65 @@
+---
+  - name: Generate a rails secret key
+    action: shell uuidgen
+    register: rails_secret_key_base
+  
+  - name: create the cals directory /opt/cals
+    file: path=/opt/cals state=directory mode=0755
+    
+  - name: Deploy the docker-compose file
+    template: src=docker-compose-cals.yml.j2 dest=/opt/cals/docker-compose.yml
+    
+  - name: Deploy the newrelic file
+    template: src=newrelic.yml.j2 dest=/opt/cals/newrelic.yml
+    
+  - name: create directory  /etc/calnginx/ssl
+    file: path=/etc/calnginx/ssl state=directory mode=0755
+      
+  - name: generate nginx.conf and deploy to docker host
+    copy: 
+      src: roles/cals-app/files/nginx.config
+      dest: /etc/calnginx/nginx.conf
+
+  - name: copy "nginx.crt" from Ansible host to the docker host
+    copy: src=nginx.crt dest=/etc/calnginx/ssl/nginx.crt
+
+  - name: copy the "nginx.key" from Ansible host to the docker host
+    copy: src=nginx.key dest=/etc/calnginx/ssl/nginx.key
+   
+  - name: pull the docker-compose file for cals
+    command: "docker pull cwds/cals:{{app_version}}"
+    
+  - name: Down any existing containers and volumes
+    command: docker-compose -f docker-compose.yml down --volumes --remove-orphans
+    args:
+      chdir: /opt/cals
+
+  - name: create cals external network
+    command: docker network rm cals
+    ignore_errors: yes
+
+  - name: create cals external network
+    command: docker network create cals
+
+  - name: Start up the docker service
+    shell: |
+        export COMPOSE_HTTP_TIMEOUT=300
+        docker-compose -f docker-compose.yml up -d -t 360
+    args:
+      chdir: /opt/cals
+      
+  - name: Check application up
+    wait_for:
+      port: 8081
+      sleep: 5
+      timeout: 360
+      delay: 30
+
+  
+  - name: Cleanup inactive docker images
+    shell: docker images cwds/cals | grep -E "<none>|weeks ago|days ago|hours ago|months ago" | awk '{print $3}' | xargs docker rmi || EXIT_CODE=$? && true
+    ignore_errors: yes
+
+  - name: Cleanup inactive docker volumes
+    shell: yes | docker volume prune
+    ignore_errors: yes

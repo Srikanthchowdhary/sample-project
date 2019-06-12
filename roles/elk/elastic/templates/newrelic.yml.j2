@@ -1,0 +1,11 @@
+{
+  "agents": [
+    {
+      "host" : "{{ hostvars[groups['elk'][0]]['inventory_hostname']}}",
+      "port" : {{ hostvars[groups['elk'][0]]['es_port'] }},
+      "username": "{{ hostvars[groups['elk'][0]]['elk.user']}}"
+      "password": "{{ hostvars[groups['credentials'][0]]['elk.password']}}"
+      "name": "logs.{{hostvars[groups['environment'][0]]['inventory_hostname']}}",
+    }
+  ]
+}

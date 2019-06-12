@@ -1,0 +1,42 @@
+---
+###########################################      
+###       Update Elasticsearch to 6.6   ###
+###########################################
+
+#
+# Install new ElasticSearch
+#
+
+- name: install updated version of ElasticSearch
+  yum:
+    name: /opt/cwds/rpm/elasticsearch-{{ elk_version }}.rpm
+    state: present
+
+- name: Remove old Cluster CA
+  file:
+    path: /tmp/elastic-stack-ca.p12
+    state: absent
+
+- name: Create Cluster CA certs
+  command: "/usr/share/elasticsearch/bin/elasticsearch-certutil -s ca --out /tmp/elastic-stack-ca.p12 --pass \"\""
+
+- name: Upload cluster CA certs to s3
+  aws_s3:
+    bucket: cwdskeys
+    region: us-west-1
+    mode: put
+    object: "{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}/elastic-stack-ca.p12"
+    aws_access_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_key_id'] }}"
+    aws_secret_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_access_key'] }}"
+    src:  /tmp/elastic-stack-ca.p12
+
+- name: Copy Cluster CA certs to local
+  fetch:
+    src: /tmp/elastic-stack-ca.p12
+    dest: elastic-stack-ca.p12
+    flat: yes
+
+- name: Remove tmp
+  file:
+    path: /tmp/elastic-stack-ca.p12
+    state: absent

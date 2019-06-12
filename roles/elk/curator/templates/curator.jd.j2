@@ -1,0 +1,34 @@
+- description: Run curator for ELK cleanup
+  executionEnabled: true
+  loglevel: DEBUG
+  name: curator
+  nodesSelectedByDefault: true
+  nodeFilterEditable: true
+  notification:
+    onfailure:
+      email:
+        attachLog: true
+        recipients: alex.kuznetsov@osi.ca.gov
+        subject: '${job.name} fail'
+    onsuccess:
+      email:
+        attachLog: true
+        recipients: alex.kuznetsov@osi.ca.gov
+        subject: '${job.name} success'
+  schedule:
+    month: '*'
+    time:
+      hour: '03'
+      minute: '00'
+      seconds: '0'
+    weekday:
+      day: '*'
+    year: '*'
+  scheduleEnabled: true
+  sequence:
+    commands:
+    - script: |-
+        #!/bin/bash 
+        /usr/bin/curator /opt/curator/cleaning_index.yml --config /opt/curator/curator.yml
+    keepgoing: false
+    strategy: node-first

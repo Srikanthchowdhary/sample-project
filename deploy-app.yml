@@ -1,0 +1,24 @@
+---
+- hosts: app-a,app-c
+  tags: ['app-a','app-c']
+  gather_facts: yes
+
+- hosts: app-c
+  become: yes
+  vars:
+    version_number: '{{SALS_APP_VERSION}}'
+    web_gateway: "{{ hostvars[groups['web-gateway'][0]]['web-gateway-a'] }}"
+    new_relic_agent: "{{ NEW_RELIC_AGENT | default('false') }}"
+  roles:
+    - docker
+    - { role: cals-app, app_version : '{{version_number}}' }
+
+- hosts: app-a
+  become: yes
+  vars:
+    version_number: '{{SALS_APP_VERSION}}'
+    web_gateway: "{{ hostvars[groups['web-gateway'][0]]['web-gateway-c'] }}"
+    new_relic_agent: "{{ NEW_RELIC_AGENT | default('false') }}"
+  roles:
+    - docker
+    - { role: sals-app, app_version : '{{version_number}}' }

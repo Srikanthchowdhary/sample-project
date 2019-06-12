@@ -1,0 +1,3 @@
+---
+- name: Update fs size
+  shell: resize2fs /dev/xvdh

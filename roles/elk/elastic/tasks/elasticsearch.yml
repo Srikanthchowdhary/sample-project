@@ -1,0 +1,184 @@
+---
+###########################################      
+### Install and Configure Elasticsearch ###
+###########################################
+## Installs elasticsearch
+
+
+- name: install python components
+  pip:
+    name: "{{item}}"
+  with_items:
+    - boto
+    - boto3
+    - botocore
+
+- name: ensure /opt/cwds/rpm exists
+  file:
+    path: /opt/cwds/rpm
+    state: directory
+    mode: 0755
+
+- name: copy the elasticsearch file
+  get_url:
+    url: https://s3-us-west-1.amazonaws.com/rpm.cwds.io/ELK/{{ elk_version }}/elasticsearch-{{ elk_version }}.rpm
+    dest: /opt/cwds/rpm/elasticsearch-{{ elk_version }}.rpm
+    backup: true
+    force: true
+
+- name: check whether elasticsearch GPG key file exists on the server
+  stat:
+    path: /opt/cwds/rpm/GPG-KEY-elasticsearch
+  register: gpg_key
+
+- name: copy the GPG-KEY-elasticsearch
+  copy:
+    src: GPG-KEY-elasticsearch
+    dest: /opt/cwds/rpm/GPG-KEY-elasticsearch
+  when: gpg_key.stat.exists == false
+
+- name: import rpm key
+  rpm_key: 
+    state: present
+    key: /opt/cwds/rpm/GPG-KEY-elasticsearch
+
+- name: install Elastic search
+  yum:
+    name: /opt/cwds/rpm/elasticsearch-{{ elk_version }}.rpm
+    state: present
+
+- name: copy over the elasticsearch config template
+  template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is defined) and (withoutldap == "true"))
+
+- name: copy over the elasticsearch config template
+  template:
+    src: elasticsearch-ldap.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is not defined) or (withoutldap != "true"))
+
+- name: copy over the elasticsearch JVM config
+  template:
+    src: jvm.options.j2
+    dest: /etc/elasticsearch/jvm.options
+    mode: 0660
+    owner: root
+    group: elasticsearch
+
+- name: Get plugins list
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin -s list "
+  register: elastic_plugin
+
+- name: Delete plugins
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin -s remove {{item}}"
+  when: not('WARNING' in "{{item}}") and (elastic_plugin.stdout != "")
+  with_items: "{{elastic_plugin.stdout_lines}}"
+
+- name: Install Xpack
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin install x-pack"
+
+- name: Install File Discovery
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin install discovery-file"
+
+- name: copy over the elasticsearch certificate
+  template:
+    src: files/cacert.pem
+    dest: /etc/elasticsearch/x-pack/cacert.pem
+    mode: 0640
+    owner: root
+    group: elasticsearch
+
+- name: copy over the elasticsearch role_mapping config
+  template:
+    src: role_mapping.yml.j2
+    dest: /etc/elasticsearch/x-pack/role_mapping.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is not defined) or (withoutldap != "true"))
+
+- name: Create Discovery file
+  lineinfile:
+    path: /etc/elasticsearch/discovery-file/unicast_hosts.txt
+    line: "{{ item }}"
+    state: present
+    create: yes
+  with_items: "{{ groups['elk'] }}"
+
+- name: restart elasticsearch service
+  service: 
+    name: elasticsearch
+    state: restarted
+    enabled: true
+
+- name: Download license
+  aws_s3:
+    bucket: cwds-license
+#    profile: main
+    region: us-west-1
+    mode: get
+#    object: /elastic/logging/non-prod/child-welfare-digital-services-state-of-california-non_production-5e2a8a75-7582-4619-adc6-6ac643dfe6f8-v5.json
+    object: "{{ hostvars[groups['elk'][0]]['licensekey'] }}"
+    aws_access_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_key_id'] }}"
+    aws_secret_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_access_key'] }}"
+#    ignore_nonexistent_bucket: true
+    dest: /opt/cwds/license.json
+
+- name: Wait for Elasticsearch 
+  wait_for:
+    host={{ hostvars[groups['elk'][0]]['inventory_hostname'] }}
+    port={{ hostvars[groups['elk'][0]]['es_port'] }}
+    state=started
+    timeout=60
+
+- name: Update license
+  shell: "curl -XPUT -u {{ hostvars[groups['elk'][0]]['elk.user'] }}:{{ hostvars[groups['credentials'][0]]['elk.password'] }}  'http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_xpack/license' -H \"Content-Type: application/json\" -d @/opt/cwds/license.json"
+
+
+- name: Clean temp files
+  file:
+    path: /opt/cwds/license.json
+    state: absent
+
+- name: Show installed license
+  uri:
+    url: "http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_xpack/license"
+    method: GET
+    user: "{{ hostvars[groups['elk'][0]]['elk.user'] }}"
+    password: "{{ hostvars[groups['credentials'][0]]['elk.password'] }}"
+
+- name: add newrelic plugin
+  shell: |
+          LICENSE_KEY="{{ hostvars[groups['credentials'][0]]['new_relic_license_key']}}" UNATTENDED=true bash -c "$(curl -sSL https://download.newrelic.com/npi/release/install-npi-linux-redhat-x64.sh)"
+          cd ~/newrelic-npi
+          ./npi install me.snov.newrelic-elasticsearch -y -n
+- name: Check newrelic elasticsearch path for plugin
+  shell: |
+          cd ~/newrelic-npi
+          ./npi where me.snov.newrelic-elasticsearch
+  register: newrelic_out
+
+- name: show debug
+  debug:
+    msg: "{{newrelic_out}}"
+
+- name: add newrelic elasticsearch config
+  template:
+    src: newrelic.yml.j2
+    dest: "{{newrelic_out.stdout}}/config/plugin.json"
+    mode: 0664
+    owner: root
+    group: root
+
+- name: Start newrelic plugin for elasticsearch
+  shell: |
+          cd ~/newrelic-npi
+          ./npi start me.snov.newrelic-elasticsearch

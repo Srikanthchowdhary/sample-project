@@ -1,0 +1,135 @@
+---
+## Install curator
+
+- name: Add curator repository
+  yum_repository:
+    name: curator-5
+    description: CentOS/RHEL 6 repository for Elasticsearch Curator 5.x packages
+    baseurl: http://packages.elastic.co/curator/5/centos/6
+    gpgcheck: yes
+    gpgkey: http://packages.elastic.co/GPG-KEY-elasticsearch
+    enabled: true
+
+- name: install the Curator
+  yum:
+    name: elasticsearch-curator
+    state: latest
+
+- name: Execute rundeck installation
+  include_role:
+    name: rundeck/rundeck-install
+  vars:
+    withnewrelic: "true"
+
+- name: ensure /opt/rundeck exists
+  file:
+    path: /opt/rundeck
+    state: directory
+    mode: 0755
+    owner: rundeck
+    group: rundeck
+
+- name: ensure /opt/curator exists
+  file:
+    path: /opt/curator
+    state: directory
+    mode: 0755
+    owner: rundeck
+    group: rundeck
+
+- name: copy over the curator config template
+  template:
+    src: "{{ item }}"
+    dest: /opt/curator/{{ item | basename | regex_replace('\.j2','') }}
+    mode: 0640
+    owner: rundeck
+    group: rundeck
+  with_fileglob:
+    - ../templates/*.yml.j2
+
+- name: copy over the curator scripts template
+  template:
+    src: "{{ item }}"
+    dest: /opt/curator/{{ item | basename | regex_replace('\.j2','') }}
+    mode: 0750
+    owner: rundeck
+    group: rundeck
+  with_fileglob:
+    - ../templates/*.sh.j2
+
+- name: copy the repo to the repos.d
+  copy: src=bintray.repo dest=/etc/yum.repos.d/
+
+- name: Install rundeck cli
+  yum: name=rundeck-cli state=present
+
+- name: start rundeck service
+  service: name=rundeckd enabled=yes state=restarted
+
+- name: export env variables RD_URL
+  shell: echo $RD_URL
+  environment:
+    RD_URL: https://{{ hostvars[groups['rundeck'][0]]['inventory_hostname'] }}:4443/api/18
+  register: rd_url
+
+- name: export env variables RD_USER
+  shell: echo $RD_USER
+  environment:
+    RD_USER: "{{ hostvars[groups['rundeck'][0]]['rundeck_username'] }}"
+  register: rd_user
+
+- name: export env variables RD_PASSWORD
+  shell: echo $RD_PASSWORD
+  environment:
+    RD_PASSWORD: "{{ hostvars[groups['credentials'][0]]['rundeck_password'] }}"
+  register: rd_password
+
+- name: check that rundeck started
+  wait_for:
+    port: 4443
+    host: "{{ hostvars[groups['rundeck'][0]]['inventory_hostname'] }}"
+    delay:  5
+
+
+- name: create a project
+  shell: >
+    export RD_URL={{rd_url['stdout']}} &&
+    export RD_USER={{rd_user['stdout']}} &&
+    export RD_PASSWORD="{{rd_password['stdout']}}" &&
+    export RD_API_DOWNGRADE=true &&
+    export RD_OPTS="-Djavax.net.ssl.trustStore=/etc/rundeck/ssl/truststore" &&
+    rd projects create -p {{ hostvars[groups['rundeck'][0]]['elk-project_name'] }}
+  ignore_errors: yes
+
+- name: nodes configuration
+  template:
+    src: resources.rd.j2
+    dest: /var/rundeck/projects/{{ hostvars[groups['rundeck'][0]]['elk-project_name'] }}/etc/resources.xml
+    owner: rundeck
+    group: rundeck
+    mode: 0644
+
+- name: copy the jobs definition to the server
+  template:
+    owner: rundeck
+    group: rundeck
+    src: "{{ item }}"
+    dest: /opt/rundeck/{{ item | basename | regex_replace('\.jd.j2','.jd.yml') }}
+  with_fileglob:
+    - ../templates/*.jd.j2
+
+- name: Get JD list
+  find:
+     paths: /opt/rundeck/
+     patterns: '*.jd.yml'
+  register: rdls
+
+- name: create a job to run curator
+  shell: >
+    export RD_URL={{rd_url['stdout']}} &&
+    export RD_USER={{rd_user['stdout']}} &&
+    export RD_PASSWORD="{{rd_password['stdout']}}" &&
+    export RD_API_DOWNGRADE=true &&
+    export RD_OPTS="-Djavax.net.ssl.trustStore=/etc/rundeck/ssl/truststore" &&
+    rd jobs load -p {{ hostvars[groups['rundeck'][0]]['elk-project_name'] }} -f {{item['path']}} -F yaml
+  with_items: "{{rdls.files}}"

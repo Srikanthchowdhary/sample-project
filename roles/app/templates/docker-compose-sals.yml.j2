@@ -1,0 +1,51 @@
+version: '2'
+services:
+  nginx:
+    image: nginx:1.12.2
+    container_name: nginx-Cals-app
+    ports:
+      - "8081:80"
+      - "441:443"
+      
+    volumes_from:
+      - calsapp:ro    
+    
+    volumes:
+      - /etc/calnginx/nginx.conf:/etc/nginx/nginx.conf
+      - /etc/calnginx/ssl/nginx.crt:/etc/nginx/ssl/nginx.crt
+      - /etc/calnginx/ssl/nginx.key:/etc/nginx/ssl/nginx.key
+    
+    networks:
+      - cals
+    restart: always
+
+  calsapp:
+    image: cwds/cals:{{app_version}}
+    container_name: cals-app
+    ports:
+      - "8099:3000"
+      
+    volumes:
+      - /opt/cals/newrelic.yml:/cals/config/newrelic.yml
+     
+    environment:
+      - AUTHENTICATION_API_BASE_URL=https://{{ hostvars[groups['web-url'][0]]['inventory_hostname']}}/{{ hostvars[groups['perry'][0]]['authentication_url'] }}
+      - SECRET_KEY_BASE='{{ rails_secret_key_base.stdout }}'
+      - REDIS_HOST={{ hostvars[groups['redis'][0]]['inventory_hostname'] }}
+      - REDIS_PORT={{ hostvars[groups['redis'][0]]['port'] }}
+      - RAILS_RELATIVE_URL_ROOT=/{{ hostvars[groups['web-gateway'][0]]['cals_base_path'] }}
+      - CALS_API_URL=https://{{ hostvars[groups['api'][0]]['cals_api_url_nomock'] }}.{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}
+      - NEW_RELIC_APP_NAME=cals.{{hostvars[groups['environment'][0]]['inventory_hostname']}}
+      - BASE_SEARCH_API_URL=https://{{ hostvars[groups['api'][0]]['dora_url'] }}.{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}
+      - GEO_SERVICE_URL=https://{{ hostvars[groups['api'][0]]['geo_api_url'] }}.{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}
+      - FEATURE_DISABLE_RFA_APPLICATION={{ hostvars[groups['app'][0]]['cals_feature_disable_rfa_application'] }}
+    extra_hosts:
+      - "{{ hostvars[groups['gov-url'][0]]['inventory_hostname'] }}: {{web_gateway}}"
+    networks:
+      - cals
+    restart: always
+    
+networks:
+  cals:
+    external:
+      name: cals

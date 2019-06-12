@@ -1,0 +1,82 @@
+---
+
+- name: install python components
+  pip:
+    name: "{{item}}"
+  with_items:
+    - boto
+    - boto3
+    - botocore
+    - flask-bcrypt
+
+- name: ensure /opt/cwds/rpm exists
+  file:
+    path: /opt/cwds/rpm
+    state: directory
+    mode: 0755
+
+- name: copy the elasticsearch file
+  get_url:
+    url: https://s3-us-west-1.amazonaws.com/rpm.cwds.io/ELK/{{ elk_version }}/elasticsearch-{{ elk_version }}.rpm
+    dest: /opt/cwds/rpm/elasticsearch-{{ elk_version }}.rpm
+    backup: true
+    force: true
+
+- name: check whether elasticsearch GPG key file exists on the server
+  stat:
+    path: /opt/cwds/rpm/GPG-KEY-elasticsearch
+  register: gpg_key
+
+- name: copy the GPG-KEY-elasticsearch
+  copy:
+    src: GPG-KEY-elasticsearch
+    dest: /opt/cwds/rpm/GPG-KEY-elasticsearch
+  when: gpg_key.stat.exists == false
+
+- name: import rpm key
+  rpm_key:
+    state: present
+    key: /opt/cwds/rpm/GPG-KEY-elasticsearch
+
+
+#
+# Check that ElasticSearch cluster run and green
+#
+
+- name: Wait for Elasticsearch
+  wait_for:
+    host: "{{ hostvars[groups['elk'][0]]['inventory_hostname'] }}"
+    port: "{{ hostvars[groups['elk'][0]]['es_port'] }}"
+    state: started
+    msg: "Elastic is not run"
+    timeout: 60
+
+#
+# Starting update
+#
+
+- name: Disable shard allocation.
+  shell: "curl -XPUT -u {{ hostvars[groups['elk'][0]]['elk.user'] }}:{{ hostvars[groups['credentials'][0]]['elk.password'] }}  'http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_cluster/settings' -H \"Content-Type: application/json\" -d'{ \"persistent\": { \"cluster.routing.allocation.enable\": \"none\" }}'"
+  register: curlexit
+
+- name: Stop indexing and perform a synced flush.
+  shell: "curl -XPOST -u {{ hostvars[groups['elk'][0]]['elk.user'] }}:{{ hostvars[groups['credentials'][0]]['elk.password'] }}  'http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_flush/synced'"
+  register: curlexit
+
+- name: Stop elasticsearch service
+  service:
+    name: elasticsearch
+    state: stopped
+
+#
+# Remove old plugins
+#
+
+- name: Get plugins list
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin -s list "
+  register: elastic_plugin
+
+- name: Delete plugins
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin -s remove {{item}}"
+  when: not('WARNING' in "{{item}}") and (elastic_plugin.stdout != "")
+  with_items: "{{elastic_plugin.stdout_lines}}"

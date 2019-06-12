@@ -1,0 +1,21 @@
+---
+
+- name: print states
+  debug: msg="{{ phase }}"
+
+- name: Preparation
+  include: preparation.yml
+  when: phase == 'preparation'
+
+- name: Generate Cluster Cert
+  include: generate_clusters_cert.yml
+  when:  phase == 'clustercert'
+
+- name: Update
+  include: elasticsearch.yml
+  when:  phase == 'update'
+
+
+- name: Postupdate
+  include: postupdate.yml
+  when:  phase == 'postupdate'

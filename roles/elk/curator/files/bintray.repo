@@ -1,0 +1,6 @@
+[bintray--rundeck-rundeck-rpm]
+name=bintray--rundeck-rundeck-rpm
+baseurl=http://rundeck.bintray.com/rundeck-rpm
+gpgcheck=0
+repo_gpgcheck=0
+enabled=1

@@ -1,0 +1,27 @@
+---
+- name: Deploy  App
+  hosts: sals-api
+  become: yes
+  serial: 1
+  vars:
+     version_number: '{{SALS_API_VERSION}}'
+     new_relic_agent: "{{ NEW_RELIC_AGENT | default('false') }}"
+  roles:
+     - docker
+     - { role: apptier/sals-api, app_version : '{{version_number}}' }
+
+- name: Check SALS-API is UP
+  hosts: localhost
+  tasks:
+   - name: Check CALS-API ELB is UP
+     shell: curl -k --head --silent "https://calsapi.{{hostvars[groups['environment'][0]]['inventory_hostname']}}/system-information"
+     register: result
+     until: result.stdout.find("200 OK") != -1
+     retries: 16
+     delay: 30
+   - name: Check CALS-API system information
+     shell: curl -k --silent "https://calsapi.{{hostvars[groups['environment'][0]]['inventory_hostname']}}/system-information"
+     register: result
+   - name: Show connections
+     debug:
+       msg: "{{ result }}"

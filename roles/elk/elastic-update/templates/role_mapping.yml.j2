@@ -1,0 +1,68 @@
+# Role mapping configuration file which has elasticsearch roles as keys
+# that map to one or more user or group distinguished names
+
+#roleA:   this is an elasticsearch role
+#  - groupA-DN  this is a group distinguished name
+#  - groupB-DN
+#  - user1-DN   this is the full user distinguished name
+
+#power_user:
+#  - "cn=admins,dc=example,dc=com"
+#user:
+#  - "cn=users,dc=example,dc=com"
+#  - "cn=admins,dc=example,dc=com"
+#  - "cn=John Doe,cn=other users,dc=example,dc=com"
+
+## All who have access to kibana dashbord
+kibana_user:
+  - "cn=logs-dev,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-app01,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-superadmin,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-preint,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-preint01,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-preint02,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-integration,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-integration01,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-integration02,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-monitoring,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-preview,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-dev-env,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-demo-int,ou=Group,dc=cwds,dc=io"
+
+monitoring_user:
+  - "cn=logs-monitoring,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-superadmin,ou=Group,dc=cwds,dc=io"
+
+dev-users:
+  - "cn=logs-dev,ou=Group,dc=cwds,dc=io"
+  - "cn=logs-dev-env,ou=Group,dc=cwds,dc=io"
+
+app01-users:
+  - "cn=logs-app01,ou=Group,dc=cwds,dc=io"
+
+preint-users:
+  - "cn=logs-preint,ou=Group,dc=cwds,dc=io"
+
+preview-users:
+  - "cn=logs-preview,ou=Group,dc=cwds,dc=io"
+
+preint01-users:
+  - "cn=logs-preint01,ou=Group,dc=cwds,dc=io"
+
+preint02-users:
+  - "cn=logs-preint02,ou=Group,dc=cwds,dc=io"
+
+integration-users:
+  - "cn=logs-integration,ou=Group,dc=cwds,dc=io"
+
+integration01-users:
+  - "cn=logs-integration01,ou=Group,dc=cwds,dc=io"
+
+integration02-users:
+  - "cn=logs-integration02,ou=Group,dc=cwds,dc=io"
+
+demo-int-users:
+  - "cn=logs-demo-int,ou=Group,dc=cwds,dc=io"
+
+superuser:
+  - "cn=logs-superadmin,ou=Group,dc=cwds,dc=io"

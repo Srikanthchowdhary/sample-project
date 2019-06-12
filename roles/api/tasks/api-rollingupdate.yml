@@ -1,0 +1,32 @@
+---
+  - name: Down any existing containers and volumes
+    command: docker-compose -f docker-compose.yml down --volumes --remove-orphans
+    args:
+      chdir: /opt/cals-api
+
+  - name: Start up the docker service
+    command: docker-compose -f docker-compose.yml up -d
+    args:
+      chdir: /opt/cals-api
+
+  - name: Check application up
+    wait_for:
+      port: 8084
+      sleep: 5
+      timeout: 360
+      delay: 30
+
+  - name: Update NewRelic deployment
+    newrelic_deployment:
+      token: "{{hostvars[groups['credentials'][0]]['new_relic_api_token']}}"
+      app_name: "cals-api.{{hostvars[groups['environment'][0]]['inventory_hostname']}}"
+      environment: "{{hostvars[groups['environment'][0]]['inventory_hostname']}}"
+      revision: "{{app_version}}"
+
+  - name: Cleanup inactive docker images
+    shell: docker images cwds/cals-api | grep -E "<none>|weeks ago|days ago|hours ago|months ago" | awk '{print $3}' | xargs docker rmi || EXIT_CODE=$? && true
+    ignore_errors: yes
+
+  - name: Cleanup inactive docker volumes
+    shell: yes | docker volume prune
+    ignore_errors: yes

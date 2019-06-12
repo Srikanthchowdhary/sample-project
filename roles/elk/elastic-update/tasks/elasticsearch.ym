@@ -1,0 +1,191 @@
+---
+###########################################      
+###       Update Elasticsearch to 6.6   ###
+###########################################
+
+#
+# Install new ElasticSearch
+#
+
+- name: install updated version of ElasticSearch
+  yum:
+    name: /opt/cwds/rpm/elasticsearch-{{ elk_version }}.rpm
+    state: present
+
+- name: copy over the elasticsearch config template
+  template:
+    src: elasticsearch-file.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+
+- name: copy over the elasticsearch JVM config
+  template:
+    src: jvm.options.j2
+    dest: /etc/elasticsearch/jvm.options
+    mode: 0660
+    owner: root
+    group: elasticsearch
+
+- name: Install File Discovery
+  command: "/usr/share/elasticsearch/bin/elasticsearch-plugin install discovery-file"
+
+- name: copy over the elasticsearch role_mapping config
+  template:
+    src: role_mapping.yml.j2
+    dest: /etc/elasticsearch/x-pack/role_mapping.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is not defined) or (withoutldap != "true"))
+
+#
+# File realms
+#
+
+- name: Create users file for file realms
+  template:
+    src: users.j2
+    dest: /etc/elasticsearch/users
+    mode: 0660
+    owner: root
+    group: elasticsearch
+
+- name: Create users_roles file for file realms
+  template:
+    src: users_roles.j2
+    dest: /etc/elasticsearch/users_roles
+    mode: 0660
+    owner: root
+    group: elasticsearch
+
+- name: Create certs folder
+  file:
+    path: /etc/elasticsearch/certs
+    state: directory
+
+- name: Download Cluster CA certs
+  aws_s3:
+    bucket: cwdskeys
+    region: us-west-1
+    mode: get
+    object: "{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}/elastic-stack-ca.p12"
+    aws_access_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_key_id'] }}"
+    aws_secret_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_access_key'] }}"
+    dest:  /tmp/elastic-stack-ca.p12
+
+- name: Remove old Cluster cert
+  file:
+    path: /etc/elasticsearch/certs/elastic-certificates.p12
+    state: absent
+
+- name: Create ElasticSearch certs
+  command: "/usr/share/elasticsearch/bin/elasticsearch-certutil cert -s --ca /tmp/elastic-stack-ca.p12 --ca-pass \"\" --out /etc/elasticsearch/certs/elastic-certificates.p12 --pass \"\""
+
+- name: Create certs folder
+  file:
+    dest: /etc/elasticsearch/certs
+    owner: elasticsearch
+    group: root
+    recurse: yes
+
+- name: Remove tmp
+  file:
+    path: /tmp/elastic-stack-ca.p12
+    state: absent
+
+- name: Create Discovery file
+  lineinfile:
+    path: /etc/elasticsearch/discovery-file/unicast_hosts.txt
+    line: "{{ item }}"
+    state: present
+    create: yes
+  with_items: "{{ groups['elk'] }}"
+
+- name: Start elasticsearch upgraded node
+  service: 
+    name: elasticsearch
+    state: restarted
+    enabled: true
+
+- name: Wait for Elasticsearch
+  wait_for:
+    host={{ hostvars[groups['elk'][0]]['inventory_hostname'] }}
+    port={{ hostvars[groups['elk'][0]]['es_port'] }}
+    state=started
+    timeout=60
+
+- name: Download license
+  aws_s3:
+    bucket: cwds-license
+    #    profile: main
+    region: us-west-1
+    mode: get
+    #    object: /elastic/logging/non-prod/child-welfare-digital-services-state-of-california-non_production-5e2a8a75-7582-4619-adc6-6ac643dfe6f8-v5.json
+    object: "{{ hostvars[groups['elk'][0]]['licensekey'] }}"
+    aws_access_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_key_id'] }}"
+    aws_secret_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_access_key'] }}"
+    #    ignore_nonexistent_bucket: true
+    dest: /opt/cwds/license.json
+
+- name: Update license
+  shell: "curl -XPUT -u {{ tempuser }}:{{ temppass }}  'http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_xpack/license' -H \"Content-Type: application/json\" -d @/opt/cwds/license.json"
+  run_once: true
+
+- name: Clean temp files
+  file:
+    path: /opt/cwds/license.json
+    state: absent
+
+- name: Check ES nodes UP
+  uri:
+    url: http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_cat/health
+    user: "{{ tempuser }}"
+    password: "{{ temppass }}"
+    return_content: yes
+    body_format: json
+  register: result
+  until: result.content | regex_search('green|yellow')
+  retries: 42
+  delay: 30
+
+- name: Enable shard allocation.
+  shell: "curl -XPUT -u {{ tempuser }}:{{ temppass }}  'http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_cluster/settings' -H \"Content-Type: application/json\" -d'{ \"persistent\": { \"cluster.routing.allocation.enable\": \"all\" }}'"
+  run_once: true
+  register: curlexit
+
+- name: Migrate Security index
+  shell: "curl -XPOST -u {{ tempuser }}:{{ temppass }}  'http://{{ inventory_hostname }}:{{ hostvars[groups['elk'][0]]['es_port'] }}/_xpack/migration/upgrade/.security'"
+  run_once: true
+  register: curlexit
+
+- name: Truncate user file
+  copy:
+    dest: /etc/elasticsearch/users
+    content: ''
+    force: yes
+
+- name: copy over the elasticsearch config template
+  template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is defined) and (withoutldap == "true"))
+
+- name: copy over the elasticsearch config template
+  template:
+    src: elasticsearch-ldap.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    mode: 0660
+    owner: root
+    group: elasticsearch
+  when: ((withoutldap is not defined) or (withoutldap != "true"))
+
+- name: Restart elasticsearch upgraded node
+  service:
+    name: elasticsearch
+    state: restarted
+    enabled: true

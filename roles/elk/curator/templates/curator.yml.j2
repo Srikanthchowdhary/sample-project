@@ -1,0 +1,22 @@
+#Add curatoe Installation #
+---
+client:
+  hosts:
+    - "{{ hostvars[groups['elk'][0]]['inventory_hostname']}}:{{ hostvars[groups['elk'][0]]['es_port'] }}"
+    - "{{ hostvars[groups['elk'][1]]['inventory_hostname']}}:{{ hostvars[groups['elk'][1]]['es_port'] }}"
+    - "{{ hostvars[groups['elk'][2]]['inventory_hostname']}}:{{ hostvars[groups['elk'][2]]['es_port'] }}"
+  url_prefix:
+  use_ssl: False
+  certificate:
+  client_cert:
+  client_key:
+  ssl_no_validate: False
+  http_auth: {{ hostvars[groups['elk'][0]]['elk.user'] }}:{{ hostvars[groups['credentials'][0]]['elk.password'] }}
+  timeout: 30
+  master_only: False
+
+logging:
+  loglevel: INFO
+  logfile:
+  logformat: default
+  blacklist: ['elasticsearch', 'urllib3','security','monitoring*','kibana']

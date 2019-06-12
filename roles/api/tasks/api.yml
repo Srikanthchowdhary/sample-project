@@ -1,0 +1,85 @@
+---
+  - name: Install lxml module using pip
+    pip:
+      name: lxml
+      state: present
+
+  - name: create the app directory for docker-compose
+    file: path=/opt/cals-api state=directory mode=0755
+
+  - name: ensure /opt/cals-api/config exists
+    file:
+      path: /opt/cals-api/config
+      state: directory
+      mode: 0755     
+
+  - name: ensure /opt/cals-api/cert exists
+    file:
+      path: /opt/cals-api/certs
+      state: directory
+      mode: 0700
+
+  - name: ensure /opt/cals-api/newrelic exists
+    file:
+      path: /opt/cals-api/newrelic
+      state: directory
+      mode: 0755
+
+  - name: Download FAS key
+    aws_s3:
+      bucket: cwdskeys
+      region: us-west-1
+      mode: get
+      object: "{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}/fas.key"
+      aws_access_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_key_id'] }}"
+      aws_secret_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_access_key'] }}"
+      dest:  /opt/cals-api/certs/fas.pk8
+    when: ("{{ hostvars[groups['lisfas'][0]]['fas-ssl-enabled'] | default('false') }}" == "true")
+
+  - name: Download FAS CRT
+    aws_s3:
+      bucket: cwdskeys
+      region: us-west-1
+      mode: get
+      object: "{{ hostvars[groups['environment'][0]]['inventory_hostname'] }}/fas.crt"
+      aws_access_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_key_id'] }}"
+      aws_secret_key: "{{ hostvars[groups['credentials'][0]]['main_aws_rpm_access_key'] }}"
+      dest:  /opt/cals-api/certs/fas.der
+    when: ("{{ hostvars[groups['lisfas'][0]]['fas-ssl-enabled'] | default('false') }}" == "true")
+
+  - name: Get NewRelic agent from maven
+    maven_artifact:
+        group_id: "newrelic-agent"
+        artifact_id: "newrelic"
+        dest: /opt/cals-api/newrelic/newrelic.jar
+        repository_url: "{{ maven_repo | default('http://pr.dev.cwds.io/artifactory/repo/') }}"
+
+  - name: Get NewRelic agent-api from maven
+    maven_artifact:
+        group_id: "newrelic-agent"
+        artifact_id: "newrelic-api"
+        dest: /opt/cals-api/newrelic/newrelic-api.jar
+        repository_url: "{{ maven_repo | default('http://pr.dev.cwds.io/artifactory/repo/') }}"
+
+
+  - name: Copy over the newrelic configuration
+    template:
+      src: newrelic.yml.j2
+      dest: /opt/cals-api/newrelic/newrelic.yml
+      group: ansible
+      force: true
+
+  - name: Deploy the docker-compose file
+    template: src=docker-compose-cals-api.yml dest=/opt/cals-api/docker-compose.yml
+
+  - name: Deploy the docker .env file
+    template:
+      src: .env.j2
+      dest: /opt/cals-api/.env
+      owner: root
+      group: root
+      mode: 0600
+      force: true
+
+  - name: pull the docker image
+    command: "docker pull cwds/cals-api:{{app_version}}"
